@@ -9,8 +9,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -18,8 +19,8 @@ public class EventBus
 {
 
     private final Map<Class<?>, Map<Byte, Map<Object, Method[]>>> byListenerAndPriority = new HashMap<>();
-    private final Map<Class<?>, EventHandlerMethod[]> byEventBaked = new HashMap<>();
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final Map<Class<?>, EventHandlerMethod[]> byEventBaked = new ConcurrentHashMap<>();
+    private final Lock lock = new ReentrantLock();
     private final Logger logger;
 
     public EventBus()
@@ -34,32 +35,26 @@ public class EventBus
 
     public void post(Object event)
     {
-        lock.readLock().lock();
-        try
+        EventHandlerMethod[] handlers = byEventBaked.get( event.getClass() );
+
+        if ( handlers != null )
         {
-            EventHandlerMethod[] handlers = byEventBaked.get( event.getClass() );
-            if ( handlers != null )
+            for ( EventHandlerMethod method : handlers )
             {
-                for ( EventHandlerMethod method : handlers )
+                try
                 {
-                    try
-                    {
-                        method.invoke( event );
-                    } catch ( IllegalAccessException ex )
-                    {
-                        throw new Error( "Method became inaccessible: " + event, ex );
-                    } catch ( IllegalArgumentException ex )
-                    {
-                        throw new Error( "Method rejected target/argument: " + event, ex );
-                    } catch ( InvocationTargetException ex )
-                    {
-                        logger.log( Level.WARNING, MessageFormat.format( "Error dispatching event {0} to listener {1}", event, method.getListener() ), ex.getCause() );
-                    }
+                    method.invoke( event );
+                } catch ( IllegalAccessException ex )
+                {
+                    throw new Error( "Method became inaccessible: " + event, ex );
+                } catch ( IllegalArgumentException ex )
+                {
+                    throw new Error( "Method rejected target/argument: " + event, ex );
+                } catch ( InvocationTargetException ex )
+                {
+                    logger.log( Level.WARNING, MessageFormat.format( "Error dispatching event {0} to listener {1}", event, method.getListener() ), ex.getCause() );
                 }
             }
-        } finally
-        {
-            lock.readLock().unlock();
         }
     }
 
@@ -101,7 +96,7 @@ public class EventBus
     public void register(Object listener)
     {
         Map<Class<?>, Map<Byte, Set<Method>>> handler = findHandlers( listener );
-        lock.writeLock().lock();
+        lock.lock();
         try
         {
             for ( Map.Entry<Class<?>, Map<Byte, Set<Method>>> e : handler.entrySet() )
@@ -127,14 +122,14 @@ public class EventBus
             }
         } finally
         {
-            lock.writeLock().unlock();
+            lock.unlock();
         }
     }
 
     public void unregister(Object listener)
     {
         Map<Class<?>, Map<Byte, Set<Method>>> handler = findHandlers( listener );
-        lock.writeLock().lock();
+        lock.lock();
         try
         {
             for ( Map.Entry<Class<?>, Map<Byte, Set<Method>>> e : handler.entrySet() )
@@ -163,7 +158,7 @@ public class EventBus
             }
         } finally
         {
-            lock.writeLock().unlock();
+            lock.unlock();
         }
     }
 
@@ -200,7 +195,7 @@ public class EventBus
             byEventBaked.put( eventClass, handlersList.toArray( new EventHandlerMethod[ handlersList.size() ] ) );
         } else
         {
-            byEventBaked.put( eventClass, null );
+            byEventBaked.remove( eventClass );
         }
     }
 }

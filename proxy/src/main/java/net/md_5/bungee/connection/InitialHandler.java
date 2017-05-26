@@ -58,6 +58,7 @@ import net.md_5.bungee.protocol.packet.LoginSuccess;
 import net.md_5.bungee.protocol.packet.PingPacket;
 import net.md_5.bungee.protocol.packet.StatusRequest;
 import net.md_5.bungee.protocol.packet.StatusResponse;
+import net.md_5.bungee.util.BoundedArrayList;
 
 @RequiredArgsConstructor
 public class InitialHandler extends PacketHandler implements PendingConnection
@@ -73,7 +74,7 @@ public class InitialHandler extends PacketHandler implements PendingConnection
     private LoginRequest loginRequest;
     private EncryptionRequest request;
     @Getter
-    private final List<PluginMessage> registerMessages = new ArrayList<>();
+    private final List<PluginMessage> registerMessages = new BoundedArrayList<>( 128 );
     private State thisState = State.HANDSHAKE;
     private final Unsafe unsafe = new Unsafe()
     {
@@ -122,7 +123,6 @@ public class InitialHandler extends PacketHandler implements PendingConnection
         // TODO: Unregister?
         if ( pluginMessage.getTag().equals( "REGISTER" ) )
         {
-            Preconditions.checkState( registerMessages.size() < 128, "Too many channels registered" );
             registerMessages.add( pluginMessage );
         }
     }
@@ -328,7 +328,7 @@ public class InitialHandler extends PacketHandler implements PendingConnection
         // We can just check by UUID here as names are based on UUID
         if ( !isOnlineMode() && bungee.getPlayer( getUniqueId() ) != null )
         {
-            disconnect( bungee.getTranslation( "already_connected" ) );
+            disconnect( bungee.getTranslation( "already_connected_proxy" ) );
             return;
         }
 
@@ -424,22 +424,23 @@ public class InitialHandler extends PacketHandler implements PendingConnection
             if ( oldName != null )
             {
                 // TODO See #1218
-                oldName.disconnect( bungee.getTranslation( "already_connected" ) );
+                oldName.disconnect( bungee.getTranslation( "already_connected_proxy" ) );
             }
             // And then also for their old UUID
             ProxiedPlayer oldID = bungee.getPlayer( getUniqueId() );
             if ( oldID != null )
             {
                 // TODO See #1218
-                oldID.disconnect( bungee.getTranslation( "already_connected" ) );
+                oldID.disconnect( bungee.getTranslation( "already_connected_proxy" ) );
             }
-        } else {
+        } else
+        {
             // In offline mode the existing user stays and we kick the new one
             ProxiedPlayer oldName = bungee.getPlayer( getName() );
             if ( oldName != null )
             {
                 // TODO See #1218
-                disconnect( bungee.getTranslation( "already_connected" ) );
+                disconnect( bungee.getTranslation( "already_connected_proxy" ) );
                 return;
             }
 
@@ -473,6 +474,10 @@ public class InitialHandler extends PacketHandler implements PendingConnection
                     {
                         if ( ch.getHandle().isActive() )
                         {
+                            UserConnection userCon = new UserConnection( bungee, ch, getName(), InitialHandler.this );
+                            userCon.setCompressionThreshold( BungeeCord.getInstance().config.getCompressionThreshold() );
+                            userCon.init();
+
                             if ( getVersion() >= ProtocolConstants.MINECRAFT_1_7_6 )
                             {
                                 unsafe.sendPacket( new LoginSuccess( getUniqueId().toString(), getName() ) ); // With dashes in between
@@ -482,13 +487,8 @@ public class InitialHandler extends PacketHandler implements PendingConnection
                             }
                             ch.setProtocol( Protocol.GAME );
 
-                            UserConnection userCon = new UserConnection( bungee, ch, getName(), InitialHandler.this );
-                            userCon.init();
-
-                            bungee.getPluginManager().callEvent( new PostLoginEvent( userCon ) );
-
                             ch.getHandle().pipeline().get( HandlerBoss.class ).setHandler( new UpstreamBridge( bungee, userCon ) );
-
+                            bungee.getPluginManager().callEvent( new PostLoginEvent( userCon ) );
                             ServerInfo server;
                             if ( bungee.getReconnectHandler() != null )
                             {
@@ -537,7 +537,10 @@ public class InitialHandler extends PacketHandler implements PendingConnection
                 @Override
                 public void run()
                 {
-                    unsafe().sendPacket( new Kick( ComponentSerializer.toString( reason ) ) );
+                    if ( thisState != State.STATUS && thisState != State.PING )
+                    {
+                        unsafe().sendPacket( new Kick( ComponentSerializer.toString( reason ) ) );
+                    }
                     ch.close();
                 }
             }, 500, TimeUnit.MILLISECONDS );
@@ -602,5 +605,11 @@ public class InitialHandler extends PacketHandler implements PendingConnection
     public String toString()
     {
         return "[" + ( ( getName() != null ) ? getName() : getAddress() ) + "] <-> InitialHandler";
+    }
+
+    @Override
+    public boolean isConnected()
+    {
+        return !ch.isClosed();
     }
 }

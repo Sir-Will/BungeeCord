@@ -13,6 +13,7 @@ import net.md_5.bungee.api.event.TabCompleteEvent;
 import net.md_5.bungee.netty.ChannelWrapper;
 import net.md_5.bungee.netty.PacketHandler;
 import net.md_5.bungee.protocol.PacketWrapper;
+import net.md_5.bungee.protocol.ProtocolConstants;
 import net.md_5.bungee.protocol.packet.KeepAlive;
 import net.md_5.bungee.protocol.packet.Chat;
 import net.md_5.bungee.protocol.packet.PlayerListItem;
@@ -73,7 +74,10 @@ public class UpstreamBridge extends PacketHandler
             } );
             for ( ProxiedPlayer player : con.getServer().getInfo().getPlayers() )
             {
-                player.unsafe().sendPacket( packet );
+                if ( player.getPendingConnection().getVersion() >= ProtocolConstants.MINECRAFT_1_8 )
+                {
+                    player.unsafe().sendPacket( packet );
+                }
             }
             con.getServer().disconnect( "Quitting" );
         }
@@ -130,15 +134,15 @@ public class UpstreamBridge extends PacketHandler
         TabCompleteEvent tabCompleteEvent = new TabCompleteEvent( con, con.getServer(), tabComplete.getCursor(), suggestions );
         bungee.getPluginManager().callEvent( tabCompleteEvent );
 
+        if ( tabCompleteEvent.isCancelled() )
+        {
+            throw CancelSendSignal.INSTANCE;
+        }
+
         List<String> results = tabCompleteEvent.getSuggestions();
         if ( !results.isEmpty() )
         {
             con.unsafe().sendPacket( new TabCompleteResponse( results ) );
-            throw CancelSendSignal.INSTANCE;
-        }
-
-        if ( tabCompleteEvent.isCancelled() )
-        {
             throw CancelSendSignal.INSTANCE;
         }
     }

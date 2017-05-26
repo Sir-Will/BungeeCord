@@ -161,6 +161,7 @@ public final class UserConnection implements ProxiedPlayer
         tabListHandler = new ServerUnique( this );
 
         Collection<String> g = bungee.getConfigurationAdapter().getGroups( name );
+        g.addAll( bungee.getConfigurationAdapter().getGroups( getUniqueId().toString() ) );
         for ( String s : g )
         {
             addGroups( s );
@@ -273,15 +274,12 @@ public final class UserConnection implements ProxiedPlayer
                     {
                         sendMessage( bungee.getTranslation( "fallback_lobby" ) );
                         connect( def, null, false );
+                    } else if ( dimensionChange )
+                    {
+                        disconnect( bungee.getTranslation( "fallback_kick", future.cause().getClass().getName() ) );
                     } else
                     {
-                        if ( dimensionChange )
-                        {
-                            disconnect( bungee.getTranslation( "fallback_kick", future.cause().getClass().getName() ) );
-                        } else
-                        {
-                            sendMessage( bungee.getTranslation( "fallback_kick", future.cause().getClass().getName() ) );
-                        }
+                        sendMessage( bungee.getTranslation( "fallback_kick", future.cause().getClass().getName() ) );
                     }
                 }
             }
@@ -584,11 +582,17 @@ public final class UserConnection implements ProxiedPlayer
 
     public void setCompressionThreshold(int compressionThreshold)
     {
-        if ( this.compressionThreshold == -1 )
+        if ( ch.getHandle().isActive() && this.compressionThreshold == -1 && getPendingConnection().getVersion() >= ProtocolConstants.MINECRAFT_1_8 )
         {
             this.compressionThreshold = compressionThreshold;
             unsafe.sendPacket( new SetCompression( compressionThreshold ) );
             ch.setCompressionThreshold( compressionThreshold );
         }
+    }
+
+    @Override
+    public boolean isConnected()
+    {
+        return !ch.isClosed();
     }
 }
